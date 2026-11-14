@@ -6,7 +6,8 @@ const Spotify = (() => {
     get(k) { try { return localStorage.getItem("sp_" + k); } catch { return null; } },
     set(k, v) { try { v == null ? localStorage.removeItem("sp_" + k) : localStorage.setItem("sp_" + k, v); } catch {} },
   };
-  const redirectUri = () => location.origin + location.pathname;
+  // Adresse de retour normalisée (sans index.html, avec le « / » final) pour correspondre au dashboard Spotify.
+  const redirectUri = () => location.origin + location.pathname.replace(/index\.html$/, "").replace(/\/?$/, "/");
 
   function aleatoire(n) {
     const a = new Uint8Array(n);
