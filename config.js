@@ -3,7 +3,7 @@
 // ils identifient l'application auprès de Spotify et de Google.
 window.CONFIG = {
   // Spotify Developer Dashboard > ton app > Client ID
-  SPOTIFY_CLIENT_ID: "",
+  SPOTIFY_CLIENT_ID: "dcc333c0b757493d88b2115df268e883",
   // Google Cloud Console > Identifiants > ID client OAuth (type "Application Web")
   GOOGLE_CLIENT_ID: "",
   // Les fichiers de séance sur Drive se terminent par ce suffixe.
