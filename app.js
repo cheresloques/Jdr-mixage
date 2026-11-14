@@ -8,6 +8,7 @@ const etat = {
   appareil: null,
   volumeMaitre: 80,   // curseur général (0-100)
   volumeActuel: 0,    // volume réellement envoyé à Spotify
+  volumeOk: true,     // l'appareil accepte-t-il le réglage du volume à distance ?
   fondu: CONFIG.FONDU_SECONDES,
   enLecture: false,
   transition: 0,      // compteur pour annuler un fondu si on clique ailleurs
@@ -21,7 +22,7 @@ const memo = {
 // --- Mode démo : simule Spotify et Drive pour essayer l'interface sans compte. ---
 if (DEMO) {
   const log = (...a) => console.log("[démo]", ...a);
-  Object.assign(Spotify, {
+  Object.assign(SpotifyWeb, {
     initialiser: async () => true, estConnecte: () => true,
     appareils: async () => [{ id: "demo", name: "Tablette (démo)", type: "Tablet", is_active: true }],
     etat: async () => null,
@@ -63,7 +64,7 @@ async function demarrer() {
   $("volume").value = etat.volumeMaitre = memo.get("volume", 80);
   afficherReglages();
 
-  const spotifyOk = await essayer(() => Spotify.initialiser());
+  const spotifyOk = await essayer(() => SpotifyWeb.initialiser());
   if (spotifyOk && driveConnecte()) return ouvrirListe();
   ecranConnexion();
 }
@@ -71,14 +72,14 @@ async function demarrer() {
 function ecranConnexion() {
   montrer("ecran-connexion");
   $("config-manquante").hidden = !!(CONFIG.SPOTIFY_CLIENT_ID && CONFIG.GOOGLE_CLIENT_ID);
-  $("btn-spotify").classList.toggle("fait", Spotify.estConnecte());
-  $("btn-spotify").textContent = Spotify.estConnecte() ? "Spotify connecté ✓" : "Connecter Spotify";
+  $("btn-spotify").classList.toggle("fait", SpotifyWeb.estConnecte());
+  $("btn-spotify").textContent = SpotifyWeb.estConnecte() ? "Spotify connecté ✓" : "Connecter Spotify";
   $("btn-drive").classList.toggle("fait", driveConnecte());
   $("btn-drive").textContent = driveConnecte() ? "Google Drive connecté ✓" : "Connecter Google Drive";
-  if (Spotify.estConnecte() && driveConnecte()) ouvrirListe();
+  if (SpotifyWeb.estConnecte() && driveConnecte()) ouvrirListe();
 }
 
-$("btn-spotify").onclick = () => essayer(() => Spotify.connecter());
+$("btn-spotify").onclick = () => essayer(() => SpotifyWeb.connecter());
 $("btn-drive").onclick = () => essayer(async () => {
   await Drive.connecter();
   memo.set("drive", true);
@@ -88,6 +89,7 @@ $("btn-drive").onclick = () => essayer(async () => {
 // --- Liste des séances ---
 async function ouvrirListe() {
   montrer("ecran-seances");
+  demarrerLecteurIntegre();
   const ul = $("liste-seances");
   if (!DEMO && !Drive.aJeton()) {
     // La fenêtre de connexion Google doit être ouverte par un toucher de l'utilisateur.
@@ -160,14 +162,42 @@ function marquerActif(scene) {
 const pause = (ms) => new Promise((ok) => setTimeout(ok, ms));
 const volumeCible = (scene) => (etat.volumeMaitre * (scene?.volume ?? 100)) / 100;
 
-// Rampe de volume : quelques paliers, car chaque palier est un appel réseau vers Spotify.
+// Règle le volume si l'appareil le permet. Certains appareils (souvent Android/iOS)
+// refusent le réglage à distance : on bascule alors en changement de scène sans fondu.
+let avertiVolume = false;
+async function regler(v) {
+  if (!etat.volumeOk) return false;
+  try {
+    if (estIntegre()) await integre.lecteur.setVolume(Math.max(0, Math.min(1, v / 100)));
+    else await SpotifyWeb.volume(v, etat.appareil);
+    etat.volumeActuel = v;
+    return true;
+  } catch (e) {
+    if (!/volume/i.test(e.message)) throw e;
+    etat.volumeOk = false;
+    majVolumeDispo();
+    if (!avertiVolume) {
+      avertiVolume = true;
+      message("Cet appareil ne permet pas de régler le volume à distance : changements de scène sans fondu. Règle le volume sur la tablette ou l'enceinte.");
+    }
+    return false;
+  }
+}
+function majVolumeDispo() {
+  $("volume").disabled = $("fondu").disabled = !etat.volumeOk;
+  $("volume").title = $("fondu").title = etat.volumeOk ? "" : "Volume non réglable à distance sur cet appareil";
+}
+
+// Rampe de volume. Via Spotify Connect, chaque palier est un appel réseau : peu de paliers.
+// Avec le lecteur intégré, le volume est réglé localement : fondu fluide.
 async function rampe(de, a, duree, jeton) {
-  const paliers = Math.max(1, Math.min(8, Math.round(duree / 250)));
+  const paliers = estIntegre()
+    ? Math.max(1, Math.min(40, Math.round(duree / 40)))
+    : Math.max(1, Math.min(8, Math.round(duree / 250)));
   for (let i = 1; i <= paliers; i++) {
     if (jeton !== etat.transition) return false;
     const v = de + ((a - de) * i) / paliers;
-    await Spotify.volume(v, etat.appareil);
-    etat.volumeActuel = v;
+    if (!(await regler(v))) return true;
     if (i < paliers) await pause(duree / paliers);
   }
   return true;
@@ -177,17 +207,17 @@ async function lancerScene(scene, pad) {
   if (!scene.spotify_playlist) return message("Pas de playlist pour cette scène.");
   const jeton = ++etat.transition;
   pad.classList.add("charge");
+  if (estIntegre()) integre.lecteur.activateElement?.(); // débloque le son sur mobile (geste utilisateur)
   try {
     const demi = (etat.fondu * 1000) / 2;
     if (etat.enLecture && demi > 0) {
       if (!(await rampe(etat.volumeActuel, 0, demi, jeton))) return;
     } else {
-      await Spotify.volume(0, etat.appareil);
-      etat.volumeActuel = 0;
+      await regler(0);
     }
     if (jeton !== etat.transition) return;
-    await Spotify.jouer(scene.spotify_playlist, etat.appareil);
-    await Spotify.aleatoire(scene.aleatoire !== false, etat.appareil).catch(() => {});
+    await SpotifyWeb.jouer(scene.spotify_playlist, etat.appareil);
+    await SpotifyWeb.aleatoire(scene.aleatoire !== false, etat.appareil).catch(() => {});
     etat.enLecture = true;
     etat.sceneActive = scene;
     marquerActif(scene);
@@ -205,7 +235,7 @@ async function lancerScene(scene, pad) {
 
 async function afficherMorceau() {
   if (DEMO) return ($("morceau").textContent = "Morceau de démonstration");
-  const e = await Spotify.etat().catch(() => null);
+  const e = await SpotifyWeb.etat().catch(() => null);
   const t = e?.item;
   $("morceau").textContent = t ? `${t.name} · ${t.artists?.map((a) => a.name).join(", ") || ""}` : "";
   if (e) etat.enLecture = e.is_playing;
@@ -214,10 +244,10 @@ setInterval(() => { if (!$("console").hidden && !document.hidden) afficherMorcea
 
 // --- Console ---
 $("btn-lecture").onclick = () => essayer(async () => {
-  if (etat.enLecture) { await Spotify.pause(etat.appareil); etat.enLecture = false; }
-  else { await Spotify.reprendre(etat.appareil); etat.enLecture = true; }
+  if (etat.enLecture) { await SpotifyWeb.pause(etat.appareil); etat.enLecture = false; }
+  else { await SpotifyWeb.reprendre(etat.appareil); etat.enLecture = true; }
 });
-$("btn-suivant").onclick = () => essayer(async () => { await Spotify.suivant(etat.appareil); setTimeout(afficherMorceau, 1000); });
+$("btn-suivant").onclick = () => essayer(async () => { await SpotifyWeb.suivant(etat.appareil); setTimeout(afficherMorceau, 1000); });
 
 function afficherReglages() {
   $("volume-val").textContent = $("volume").value;
@@ -232,8 +262,7 @@ $("volume").oninput = () => {
   minuterieVolume = setTimeout(() => essayer(async () => {
     if (!etat.enLecture) return;
     etat.transition++; // annule un fondu en cours
-    etat.volumeActuel = volumeCible(etat.sceneActive);
-    await Spotify.volume(etat.volumeActuel, etat.appareil);
+    await regler(volumeCible(etat.sceneActive));
   }), 250);
 };
 $("fondu").oninput = () => {
@@ -243,21 +272,73 @@ $("fondu").oninput = () => {
 };
 
 async function rafraichirAppareils() {
-  const liste = await essayer(() => Spotify.appareils());
+  const liste = await essayer(() => SpotifyWeb.appareils());
   if (!liste) return;
   const sel = $("appareil");
   const prefere = memo.get("appareil", null);
   sel.innerHTML = "";
   if (!liste.length) sel.innerHTML = "<option value=''>Aucun (ouvre Spotify)</option>";
+  if (integre.id && !liste.some((d) => d.id === integre.id)) {
+    liste.unshift({ id: integre.id, name: integre.nom, supports_volume: true });
+  }
   for (const d of liste) {
-    const o = new Option(d.name, d.id);
+    const o = new Option(d.id === integre.id ? "Ce navigateur (fondus fluides)" : d.name, d.id);
     sel.append(o);
   }
-  const choix = liste.find((d) => d.id === prefere) || liste.find((d) => d.is_active) || liste[0];
-  if (choix) { sel.value = choix.id; etat.appareil = choix.id; }
+  const choix = liste.find((d) => d.id === integre.id) || liste.find((d) => d.id === prefere) || liste.find((d) => d.is_active) || liste[0];
+  etat.listeAppareils = liste;
+  if (choix) { sel.value = choix.id; choisirAppareil(choix.id); }
 }
-$("appareil").onchange = () => { etat.appareil = $("appareil").value || null; memo.set("appareil", etat.appareil); };
+function choisirAppareil(id) {
+  etat.appareil = id || null;
+  const d = (etat.listeAppareils || []).find((x) => x.id === id);
+  etat.volumeOk = estIntegre() || (d ? d.supports_volume !== false : true);
+  majVolumeDispo();
+}
+$("appareil").onchange = () => { choisirAppareil($("appareil").value); memo.set("appareil", etat.appareil); };
 $("btn-appareils").onclick = rafraichirAppareils;
+
+// --- Lecteur intégré (Spotify Web Playback SDK) : le son sort du navigateur. ---
+// Non garanti par Spotify sur mobile ; s'il ne démarre pas, la liste garde les appareils Spotify Connect.
+const NOM_INTEGRE = "Table de mixage JdR";
+const integre = { lecteur: null, id: null, nom: NOM_INTEGRE };
+const estIntegre = () => !!integre.id && etat.appareil === integre.id;
+
+function demarrerLecteurIntegre() {
+  if (DEMO || integre.lecteur) return;
+  if (!SpotifyWeb.peutLecteurIntegre()) { $("btn-integre").hidden = !SpotifyWeb.estConnecte(); return; }
+  window.onSpotifyWebPlaybackSDKReady = () => {
+    const lecteur = new window.Spotify.Player({
+      name: NOM_INTEGRE,
+      getOAuthToken: (cb) => SpotifyWeb.jeton().then(cb).catch(() => {}),
+      volume: 0.8,
+    });
+    integre.lecteur = lecteur;
+    lecteur.addListener("ready", ({ device_id }) => {
+      integre.id = device_id;
+      if (!$("ecran-table").hidden) rafraichirAppareils();
+    });
+    lecteur.addListener("not_ready", () => { integre.id = null; });
+    lecteur.addListener("initialization_error", ({ message: m }) => {
+      console.warn("Lecteur intégré indisponible :", m);
+      message("Le lecteur intégré ne fonctionne pas dans ce navigateur. L'app utilise l'app Spotify à la place.");
+    });
+    lecteur.addListener("authentication_error", () => { $("btn-integre").hidden = false; });
+    lecteur.addListener("account_error", () => message("Le lecteur intégré demande un compte Spotify Premium."));
+    lecteur.addListener("player_state_changed", (st) => {
+      if (!st || !estIntegre()) return;
+      etat.enLecture = !st.paused;
+      const t = st.track_window?.current_track;
+      if (t) $("morceau").textContent = `${t.name} · ${t.artists.map((a) => a.name).join(", ")}`;
+    });
+    lecteur.connect();
+  };
+  const sc = document.createElement("script");
+  sc.src = "https://sdk.scdn.co/spotify-player.js";
+  document.head.append(sc);
+}
+// Le SDK a besoin de droits supplémentaires : une reconnexion Spotify suffit.
+$("btn-integre").onclick = () => essayer(() => SpotifyWeb.connecter());
 
 // Raccourcis clavier : 1-9 pour les scènes, 0 pour « hors des sentiers », espace pour pause.
 document.addEventListener("keydown", (e) => {

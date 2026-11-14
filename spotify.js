@@ -1,12 +1,14 @@
 // Connexion Spotify (OAuth PKCE, sans serveur) et pilotage de la lecture via Spotify Connect.
-const Spotify = (() => {
-  const SCOPES = "user-read-playback-state user-modify-playback-state";
+const SpotifyWeb = (() => {
+  // « streaming » et « user-read-* » servent au lecteur intégré (son joué par le navigateur).
+  const SCOPES = "user-read-playback-state user-modify-playback-state streaming user-read-email user-read-private";
   const API = "https://api.spotify.com/v1";
   const store = {
     get(k) { try { return localStorage.getItem("sp_" + k); } catch { return null; } },
     set(k, v) { try { v == null ? localStorage.removeItem("sp_" + k) : localStorage.setItem("sp_" + k, v); } catch {} },
   };
-  const redirectUri = () => location.origin + location.pathname;
+  // Adresse de retour normalisée (sans index.html, avec le « / » final) pour correspondre au dashboard SpotifyWeb.
+  const redirectUri = () => location.origin + location.pathname.replace(/index\.html$/, "").replace(/\/?$/, "/");
 
   function aleatoire(n) {
     const a = new Uint8Array(n);
@@ -43,9 +45,10 @@ const Spotify = (() => {
     store.set("access", j.access_token);
     store.set("expire", String(Date.now() + (j.expires_in - 60) * 1000));
     if (j.refresh_token) store.set("refresh", j.refresh_token);
+    if (j.scope) store.set("scope", j.scope);
   }
 
-  // À appeler au chargement : termine la connexion si on revient de Spotify.
+  // À appeler au chargement : termine la connexion si on revient de SpotifyWeb.
   async function initialiser() {
     const q = new URLSearchParams(location.search);
     if (q.get("code")) {
@@ -63,7 +66,7 @@ const Spotify = (() => {
 
   const estConnecte = () => !!store.get("refresh");
 
-  function deconnecter() { ["access", "expire", "refresh"].forEach((k) => store.set(k, null)); }
+  function deconnecter() { ["access", "expire", "refresh", "scope"].forEach((k) => store.set(k, null)); }
 
   async function jeton() {
     if (store.get("access") && Date.now() < Number(store.get("expire"))) return store.get("access");
@@ -93,7 +96,8 @@ const Spotify = (() => {
   const qs = (o) => "?" + new URLSearchParams(Object.fromEntries(Object.entries(o).filter(([, v]) => v != null)));
 
   return {
-    connecter, initialiser, estConnecte, deconnecter,
+    connecter, initialiser, estConnecte, deconnecter, jeton,
+    peutLecteurIntegre: () => (store.get("scope") || "").split(" ").includes("streaming"),
     appareils: async () => (await api("GET", "/me/player/devices")).devices || [],
     etat: () => api("GET", "/me/player"),
     jouer: (uri, appareil) => api("PUT", "/me/player/play" + qs({ device_id: appareil }), { context_uri: uri }),
