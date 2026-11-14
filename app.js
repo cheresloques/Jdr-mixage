@@ -8,6 +8,7 @@ const etat = {
   appareil: null,
   volumeMaitre: 80,   // curseur général (0-100)
   volumeActuel: 0,    // volume réellement envoyé à Spotify
+  volumeOk: true,     // l'appareil accepte-t-il le réglage du volume à distance ?
   fondu: CONFIG.FONDU_SECONDES,
   enLecture: false,
   transition: 0,      // compteur pour annuler un fondu si on clique ailleurs
@@ -160,14 +161,38 @@ function marquerActif(scene) {
 const pause = (ms) => new Promise((ok) => setTimeout(ok, ms));
 const volumeCible = (scene) => (etat.volumeMaitre * (scene?.volume ?? 100)) / 100;
 
+// Règle le volume si l'appareil le permet. Certains appareils (souvent Android/iOS)
+// refusent le réglage à distance : on bascule alors en changement de scène sans fondu.
+let avertiVolume = false;
+async function regler(v) {
+  if (!etat.volumeOk) return false;
+  try {
+    await Spotify.volume(v, etat.appareil);
+    etat.volumeActuel = v;
+    return true;
+  } catch (e) {
+    if (!/volume/i.test(e.message)) throw e;
+    etat.volumeOk = false;
+    majVolumeDispo();
+    if (!avertiVolume) {
+      avertiVolume = true;
+      message("Cet appareil ne permet pas de régler le volume à distance : changements de scène sans fondu. Règle le volume sur la tablette ou l'enceinte.");
+    }
+    return false;
+  }
+}
+function majVolumeDispo() {
+  $("volume").disabled = $("fondu").disabled = !etat.volumeOk;
+  $("volume").title = $("fondu").title = etat.volumeOk ? "" : "Volume non réglable à distance sur cet appareil";
+}
+
 // Rampe de volume : quelques paliers, car chaque palier est un appel réseau vers Spotify.
 async function rampe(de, a, duree, jeton) {
   const paliers = Math.max(1, Math.min(8, Math.round(duree / 250)));
   for (let i = 1; i <= paliers; i++) {
     if (jeton !== etat.transition) return false;
     const v = de + ((a - de) * i) / paliers;
-    await Spotify.volume(v, etat.appareil);
-    etat.volumeActuel = v;
+    if (!(await regler(v))) return true;
     if (i < paliers) await pause(duree / paliers);
   }
   return true;
@@ -182,8 +207,7 @@ async function lancerScene(scene, pad) {
     if (etat.enLecture && demi > 0) {
       if (!(await rampe(etat.volumeActuel, 0, demi, jeton))) return;
     } else {
-      await Spotify.volume(0, etat.appareil);
-      etat.volumeActuel = 0;
+      await regler(0);
     }
     if (jeton !== etat.transition) return;
     await Spotify.jouer(scene.spotify_playlist, etat.appareil);
@@ -232,8 +256,7 @@ $("volume").oninput = () => {
   minuterieVolume = setTimeout(() => essayer(async () => {
     if (!etat.enLecture) return;
     etat.transition++; // annule un fondu en cours
-    etat.volumeActuel = volumeCible(etat.sceneActive);
-    await Spotify.volume(etat.volumeActuel, etat.appareil);
+    await regler(volumeCible(etat.sceneActive));
   }), 250);
 };
 $("fondu").oninput = () => {
@@ -254,9 +277,16 @@ async function rafraichirAppareils() {
     sel.append(o);
   }
   const choix = liste.find((d) => d.id === prefere) || liste.find((d) => d.is_active) || liste[0];
-  if (choix) { sel.value = choix.id; etat.appareil = choix.id; }
+  etat.listeAppareils = liste;
+  if (choix) { sel.value = choix.id; choisirAppareil(choix.id); }
 }
-$("appareil").onchange = () => { etat.appareil = $("appareil").value || null; memo.set("appareil", etat.appareil); };
+function choisirAppareil(id) {
+  etat.appareil = id || null;
+  const d = (etat.listeAppareils || []).find((x) => x.id === id);
+  etat.volumeOk = d ? d.supports_volume !== false : true;
+  majVolumeDispo();
+}
+$("appareil").onchange = () => { choisirAppareil($("appareil").value); memo.set("appareil", etat.appareil); };
 $("btn-appareils").onclick = rafraichirAppareils;
 
 // Raccourcis clavier : 1-9 pour les scènes, 0 pour « hors des sentiers », espace pour pause.
