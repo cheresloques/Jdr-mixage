@@ -5,7 +5,7 @@ window.CONFIG = {
   // Spotify Developer Dashboard > ton app > Client ID
   SPOTIFY_CLIENT_ID: "dcc333c0b757493d88b2115df268e883",
   // Google Cloud Console > Identifiants > ID client OAuth (type "Application Web")
-  GOOGLE_CLIENT_ID: "",
+  GOOGLE_CLIENT_ID: "680239581423-3k5nssjfstlrhr2itlaao3fndijekmdb.apps.googleusercontent.com",
   // Les fichiers de séance sur Drive se terminent par ce suffixe.
   SEANCE_SUFFIXE: ".seance.json",
   // Durée par défaut du fondu enchaîné, en secondes.

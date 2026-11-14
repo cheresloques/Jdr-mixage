@@ -49,7 +49,7 @@ Voir [`seances/exemple.seance.json`](seances/exemple.seance.json).
 ### 1. App Spotify
 1. <https://developer.spotify.com/dashboard> > *Create app*.
 2. *Redirect URI* : l'adresse GitHub Pages exacte, par exemple
-   `https://cheresloques.github.io/jdr-mixage/` (avec le `/` final).
+   `https://cheresloques.github.io/Jdr-mixage/` (avec le `/` final).
 3. Cocher *Web API*. Copier le *Client ID* dans `config.js`.
 4. L'app reste en mode développement : c'est suffisant pour ton compte.
 
