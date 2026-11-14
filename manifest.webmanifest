@@ -1,0 +1,10 @@
+{
+  "name": "Table de mixage JdR",
+  "short_name": "Mixage JdR",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#14110f",
+  "theme_color": "#14110f",
+  "icons": [{ "src": "icone.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

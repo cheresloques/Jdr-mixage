@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "campagne": "Oathsworn — mode histoire",
+  "seance": "Exemple — La forêt profonde",
+  "date": "2026-11-21",
+  "scenes": [
+    { "id": "camp", "titre": "Veillée au camp", "type": "musique", "ambiance": "calme, feu de camp, nordique", "couleur": "#4a7c59", "spotify_playlist": "spotify:playlist:A_REMPLACER_1", "volume": 60 },
+    { "id": "foret", "titre": "La forêt", "type": "ambiance", "ambiance": "vent, oiseaux, craquements", "couleur": "#2f5d50", "spotify_playlist": "spotify:playlist:A_REMPLACER_2", "volume": 70 },
+    { "id": "rencontre", "titre": "Rencontre mystérieuse", "type": "musique", "ambiance": "tension, cordes graves", "couleur": "#6a4c8c", "spotify_playlist": "spotify:playlist:A_REMPLACER_3", "volume": 70 },
+    { "id": "combat", "titre": "Combat contre la Bête", "type": "musique", "ambiance": "épique, percussions", "couleur": "#a33a2a", "spotify_playlist": "spotify:playlist:A_REMPLACER_4", "volume": 90 },
+    { "id": "victoire", "titre": "Victoire amère", "type": "musique", "ambiance": "solennel, cuivres", "couleur": "#b08a3c", "spotify_playlist": "spotify:playlist:A_REMPLACER_5", "volume": 70, "aleatoire": false }
+  ],
+  "hors_sentiers": {
+    "titre": "Hors des sentiers battus",
+    "ambiance": "pour l'imprévu",
+    "spotify_playlist": "spotify:playlist:A_REMPLACER_6"
+  }
+}
